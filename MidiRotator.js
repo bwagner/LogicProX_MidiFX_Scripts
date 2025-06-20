@@ -20,45 +20,41 @@
 //
 //-----------------------------------------------------------------------------
 
-// number of harmonies, also drives parameter creation. you can change numVoices, then rerun script.
-var numVoices = 5;
-var rotor = 1;
+var pitches = [7, -10, -7, -8, -1];
+// number of harmonies, also drives parameter creation. you can change pitches, then rerun script.
+var numVoices = pitches.length;
 var count = 0;
+
+// TODO: make a class
 
 // global array of active notes for record keeping
 var activeNotes = [];
 
+function makeNote(event, voice = null) {
+  var note = new NoteOn(event);
+  if (voice !== null) {
+    note.pitch += GetParameter("Transposition " + voice);
+    note.velocity = event.velocity * GetParameter("Velocity " + voice);
+  }
+  note.send();
+  return note;
+}
+
 //-----------------------------------------------------------------------------
 function HandleMIDI(event) {
   if (event instanceof NoteOn) {
-    // count on rotor
-    rotor = (count % (numVoices - 1)) + 2;
-
     // store a copy for record keeping and send it
-    var originalNote = new NoteOn(event);
-    var record = { originalPitch: event.pitch, events: [originalNote] };
-    event.send();
+    var record = { originalPitch: event.pitch, events: [makeNote(event)] };
 
-    // now harmonize
-    for (var i = 1; i < numVoices + 1; i++) {
-      // create a parallel copy of the note on and apply parameters
-      var parallel = new NoteOn(event);
-      parallel.pitch += GetParameter("Transposition " + 1);
-      parallel.velocity = event.velocity * GetParameter("Velocity " + 1);
+    // create a parallel copy of the note on and apply parameters
+    // Note: Voice 1 is the parallel voice, which is not included in the rotation process.
+    record.events.push(makeNote(event, 1));
 
-      // store it alongside the original note and send it
-      record.events.push(parallel);
-      parallel.send();
-
-      // create a copy of the note on and apply parameters
-      var harmony = new NoteOn(event);
-      harmony.pitch += GetParameter("Transposition " + rotor);
-      harmony.velocity = event.velocity * GetParameter("Velocity " + rotor);
-
-      // store it alongside the original note and send it
-      record.events.push(harmony);
-      harmony.send();
-    }
+    // harmonize
+    // Adding 2, because index 0 is the original note, index 1 the parallel note
+    // Subtracting 1 from voices, because the parallel note is excluded from rotation.
+    var rotor = (count % (numVoices - 1)) + 2;
+    record.events.push(makeNote(event, rotor));
 
     // put the record of all harmonies in activeNotes array
     activeNotes.push(record);
@@ -111,7 +107,6 @@ function ParameterChanged(param, value) {
 
 //-----------------------------------------------------------------------------
 // Parameter Definitions
-var pitches = [7, -10, -7, -8, -1];
 
 var PluginParameters = [];
 for (var i = 0; i < numVoices; i++) {
