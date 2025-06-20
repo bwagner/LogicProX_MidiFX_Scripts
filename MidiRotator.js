@@ -20,15 +20,13 @@
 //
 //-----------------------------------------------------------------------------
 
-var pitches = [7, -10, -7, -8, -1];
 // number of harmonies, also drives parameter creation. you can change pitches, then rerun script.
+var pitches = [7, -10, -7, -8, -1];
 var numVoices = pitches.length;
 var count = 0;
 
-// TODO: make a class
-
-// global array of active notes for record keeping
-var activeNotes = [];
+// global object of active notes for record keeping
+var activeNotes = {};
 
 function makeNote(event, voice = null) {
   var note = new NoteOn(event);
@@ -43,41 +41,32 @@ function makeNote(event, voice = null) {
 //-----------------------------------------------------------------------------
 function HandleMIDI(event) {
   if (event instanceof NoteOn) {
-    // store a copy for record keeping and send it
-    var record = { originalPitch: event.pitch, events: [makeNote(event)] };
+    // create and send original note
+    var events = [makeNote(event)];
 
-    // create a parallel copy of the note on and apply parameters
+    // create and send parallel voice
     // Note: Voice 1 is the parallel voice, which is not included in the rotation process.
-    record.events.push(makeNote(event, 1));
+    events.push(makeNote(event, 1));
 
-    // harmonize
+    // create and send rotated voice
     // Adding 2, because index 0 is the original note, index 1 the parallel note
-    // Subtracting 1 from voices, because the parallel note is excluded from rotation.
+    // Subtracting 1 from numVoices, because the parallel note is excluded from rotation.
     var rotor = (count % (numVoices - 1)) + 2;
-    record.events.push(makeNote(event, rotor));
+    events.push(makeNote(event, rotor));
 
-    // put the record of all harmonies in activeNotes array
-    activeNotes.push(record);
+    // store the list of all note events
+    activeNotes[event.pitch] = events;
     count += 1;
   } else if (event instanceof NoteOff) {
-    // find a match for the note off in our activeNotes record
-    for (var i in activeNotes) {
-      if (activeNotes[i].originalPitch == event.pitch) {
-        // send note offs for each note stored in the record
-        for (var j = 0; j < activeNotes[i].events.length; j++) {
-          var noteOff = new NoteOff(activeNotes[i].events[j]);
-          noteOff.send();
-        }
-
-        // remove the record from activeNotes
-        activeNotes.splice(i, 1);
-        break;
+    var events = activeNotes[event.pitch];
+    if (events) {
+      for (var note of events) {
+        var noteOff = new NoteOff(note);
+        noteOff.send();
       }
+      delete activeNotes[event.pitch];
     }
-  }
-
-  // pass non-note events through
-  else {
+  } else {
     event.send();
   }
 }
@@ -85,22 +74,21 @@ function HandleMIDI(event) {
 //-----------------------------------------------------------------------------
 // when a parameter changes, kill active note and send the new one
 function ParameterChanged(param, value) {
-  // which voice is it?
-  var voiceIndex = param % 2 == 0 ? param / 2 : (param - 1) / 2;
+  var voiceIndex = param % 2 === 0 ? param / 2 : (param - 1) / 2;
 
-  for (var i in activeNotes) {
-    var voiceToChange = activeNotes[i].events[voiceIndex + 1];
+  for (var pitch in activeNotes) {
+    var events = activeNotes[pitch];
+    var voiceToChange = events[voiceIndex + 1];
 
-    // send note off
     var noteOff = new NoteOff(voiceToChange);
     noteOff.send();
 
-    // modify according to param change
-    if (param % 2 == 0)
-      voiceToChange.pitch = activeNotes[i].originalPitch + value;
-    else voiceToChange.velocity = value;
+    if (param % 2 === 0) {
+      voiceToChange.pitch = pitch + value;
+    } else {
+      voiceToChange.velocity = value;
+    }
 
-    // send
     voiceToChange.send();
   }
 }
